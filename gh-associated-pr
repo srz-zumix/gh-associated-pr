@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" &>/dev/null && pwd -P)
+
+GH_ASSOCIATED_PR_VERSION=0.1
+
+msg() {
+    echo >&2 -e "${1-}"
+}
+
+die() {
+    local msg=$1
+    local code=${2-1} # default exit status 1
+    msg "$msg"
+    exit "$code"
+}
+
+usage() {
+    # shellcheck disable=SC1078
+    die "gh-associated-pr version ${GH_ASSOCIATED_PR_VERSION}
+
+Usage:
+  gh-associated-pr [OPTIONS] [COMMIT_SHA]
+
+Options:
+  -h, --help            Show this help message
+  --version             Show version
+  -R, --repo OWNER/REPO Select another repository using the OWNER/REPO format
+  --jq EXPRESSION       Filter JSON output using a jq expression (default: '.[].number')
+
+Arguments:
+  COMMIT_SHA            Commit SHA to find associated PRs (default: HEAD)
+" "$1"
+}
+
+parse_params() {
+    INPUT_BYPASS_OPTIONS=()
+    COMMIT_SHA=""
+    REPO=""
+    JQ_QUERY=".[].number"
+
+    while :; do
+        case "${1-}" in
+        --version )
+            echo "gh-associated-pr version ${GH_ASSOCIATED_PR_VERSION}"
+            exit 0
+            ;;
+        --help| -h )
+            usage 0
+            ;;
+        --repo | -R )
+            REPO="${2-}"
+            shift
+            ;;
+        --jq )
+            JQ_QUERY="${2-}"
+            shift
+            ;;
+        -- )
+            shift
+            INPUT_BYPASS_OPTIONS=("$@")
+            break ;;
+        --*| -* )
+            echo "${1:-} is invalid option."
+            usage 1
+            ;;
+        ?* )
+            COMMIT_SHA="${1-}"
+            ;;
+        *) 
+            break ;;
+        esac
+        shift
+    done
+    return 0
+}
+
+parse_params "$@"
+
+TRAILING_OPTIONS=()
+if [ "${#INPUT_BYPASS_OPTIONS[@]}" != 0 ]; then
+    TRAILING_OPTIONS+=("${INPUT_BYPASS_OPTIONS[@]}")
+fi
+
+get_associated_prs() {
+    local commit_sha=$1
+    local repo=$2
+    local jq_query=$3
+    
+    # Use current commit if not specified
+    if [ -z "$commit_sha" ]; then
+        commit_sha=$(git rev-parse HEAD)
+    fi
+    
+    # Get repository information if not specified
+    if [ -z "$repo" ]; then
+        repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+    fi
+    
+    if [ -z "$repo" ]; then
+        die "Failed to get repository information"
+    fi
+    
+    # Fetch pull requests associated with the commit using GitHub API
+    # Set GH_PAGER to cat to prevent interactive pager
+    GH_PAGER=cat gh api "/repos/${repo}/commits/${commit_sha}/pulls" \
+        --jq "$jq_query" \
+        "${TRAILING_OPTIONS[@]}"
+}
+
+main() {
+    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY"
+}
+
+main
