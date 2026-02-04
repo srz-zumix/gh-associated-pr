@@ -28,6 +28,7 @@ Options:
   --version             Show version
   -R, --repo OWNER/REPO Select another repository using the OWNER/REPO format
   --jq EXPRESSION       Filter JSON output using a jq expression (default: '.[].number')
+  --graphql             Use GraphQL API instead of REST API
 
 Arguments:
   COMMIT_SHA            Commit SHA to find associated PRs (default: HEAD)
@@ -39,6 +40,7 @@ parse_params() {
     COMMIT_SHA=""
     REPO=""
     JQ_QUERY=".[].number"
+    USE_GRAPHQL=false
 
     while :; do
         case "${1-}" in
@@ -56,6 +58,9 @@ parse_params() {
         --jq )
             JQ_QUERY="${2-}"
             shift
+            ;;
+        --graphql )
+            USE_GRAPHQL=true
             ;;
         -- )
             shift
@@ -83,10 +88,70 @@ if [ "${#INPUT_BYPASS_OPTIONS[@]}" != 0 ]; then
     TRAILING_OPTIONS+=("${INPUT_BYPASS_OPTIONS[@]}")
 fi
 
+get_associated_prs_rest() {
+    local commit_sha=$1
+    local repo=$2
+    local jq_query=$3
+    
+    # Fetch pull requests associated with the commit using GitHub REST API
+    # Set GH_PAGER to cat to prevent interactive pager
+    GH_PAGER="cat" gh api "/repos/${repo}/commits/${commit_sha}/pulls" \
+        --jq "$jq_query" \
+        "${TRAILING_OPTIONS[@]}"
+}
+
+get_associated_prs_graphql() {
+    local commit_sha=$1
+    local repo=$2
+    local jq_query=$3
+    
+    # Split owner and repo name
+    local owner="${repo%%/*}"
+    local name="${repo##*/}"
+    
+    # GraphQL query to fetch pull requests associated with a commit
+    local query
+    read -r -d '' query << 'EOF' || true
+query($owner: String!, $name: String!, $oid: GitObjectID!) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $oid) {
+      ... on Commit {
+        associatedPullRequests(first: 100) {
+          nodes {
+            number
+            title
+            url
+            state
+            author {
+              login
+            }
+            mergedAt
+            closedAt
+            createdAt
+          }
+        }
+      }
+    }
+  }
+}
+EOF
+    
+    # Execute GraphQL query and extract PR data
+    # Set GH_PAGER to cat to prevent interactive pager
+    GH_PAGER="cat" gh api graphql \
+        -f query="$query" \
+        -f owner="$owner" \
+        -f name="$name" \
+        -f oid="$commit_sha" \
+        --jq ".data.repository.object.associatedPullRequests.nodes | $jq_query" \
+        "${TRAILING_OPTIONS[@]}"
+}
+
 get_associated_prs() {
     local commit_sha=$1
     local repo=$2
     local jq_query=$3
+    local use_graphql=$4
     
     # Use current commit if not specified
     if [ -z "$commit_sha" ]; then
@@ -102,15 +167,16 @@ get_associated_prs() {
         die "Failed to get repository information"
     fi
     
-    # Fetch pull requests associated with the commit using GitHub API
-    # Set GH_PAGER to cat to prevent interactive pager
-    GH_PAGER="cat" gh api "/repos/${repo}/commits/${commit_sha}/pulls" \
-        --jq "$jq_query" \
-        "${TRAILING_OPTIONS[@]}"
+    # Call appropriate API implementation
+    if [ "$use_graphql" = true ]; then
+        get_associated_prs_graphql "$commit_sha" "$repo" "$jq_query"
+    else
+        get_associated_prs_rest "$commit_sha" "$repo" "$jq_query"
+    fi
 }
 
 main() {
-    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY"
+    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL"
 }
 
 main
