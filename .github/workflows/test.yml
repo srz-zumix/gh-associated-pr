@@ -17,3 +17,7 @@ jobs:
       - run: make install
       - run: |
           gh associated-pr ${{ github.ref }}
+      - run: |
+          gh associated-pr ${{ github.sha }}
+      - run: |
+          gh associated-pr --graphql ${{ github.sha }}
