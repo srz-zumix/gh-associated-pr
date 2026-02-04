@@ -23,6 +23,9 @@ jobs:
         run: |
           PR_NUMBER=$(gh associated-pr ${{ github.sha }} | head -n 1)
           echo "PR_NUMBER=$PR_NUMBER" >> "${GITHUB_OUTPUT}"
+      - name: Check PR Number
+        run: |
+          test -n "${{ steps.get-associated-pr.outputs.PR_NUMBER }}"
       - name: Test Associated PR
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
         run: |
@@ -42,6 +45,9 @@ jobs:
         run: |
           PR_NUMBER=$(gh associated-pr --graphql ${{ github.sha }} | head -n 1)
           echo "PR_NUMBER=$PR_NUMBER" >> "${GITHUB_OUTPUT}"
+      - name: Check PR Number
+        run: |
+          test -n "${{ steps.get-associated-pr.outputs.PR_NUMBER }}"
       - name: Test Associated PR
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
         run: |
