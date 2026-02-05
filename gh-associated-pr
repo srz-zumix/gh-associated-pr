@@ -96,6 +96,7 @@ get_associated_prs_rest() {
     # Fetch pull requests associated with the commit using GitHub REST API
     # Set GH_PAGER to cat to prevent interactive pager
     GH_PAGER="cat" gh api "/repos/${repo}/commits/${commit_sha}/pulls" \
+        -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
         --jq "$jq_query" \
         "${TRAILING_OPTIONS[@]}"
 }
@@ -139,6 +140,7 @@ EOF
     # Execute GraphQL query and extract PR data
     # Set GH_PAGER to cat to prevent interactive pager
     GH_PAGER="cat" gh api graphql \
+        -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
         -f query="$query" \
         -f owner="$owner" \
         -f name="$name" \
