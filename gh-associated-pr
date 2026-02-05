@@ -97,6 +97,7 @@ get_associated_prs_rest() {
     # Set GH_PAGER to cat to prevent interactive pager
     GH_PAGER="cat" gh api "/repos/${repo}/commits/${commit_sha}/pulls" \
         -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
+        -H "Cache-Control: no-cache" \
         --jq "$jq_query" \
         "${TRAILING_OPTIONS[@]}"
 }
@@ -141,6 +142,7 @@ EOF
     # Set GH_PAGER to cat to prevent interactive pager
     GH_PAGER="cat" gh api graphql \
         -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
+        -H "Cache-Control: no-cache" \
         -f query="$query" \
         -f owner="$owner" \
         -f name="$name" \
