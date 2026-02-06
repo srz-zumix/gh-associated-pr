@@ -76,3 +76,25 @@ jobs:
           MERGE_COMMIT=$(gh pr view ${{ steps.get-associated-pr.outputs.PR_NUMBER }} --json mergeCommit --jq .mergeCommit.oid)
           echo "Merge commit: ${MERGE_COMMIT}"
           test "${MERGE_COMMIT}" = "${{ github.sha }}"
+
+  test-pr-list:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: make install
+      - name: Get Associated PR
+        id: get-associated-pr
+        run: |
+          PR_NUMBER=$(gh associated-pr --pr-list ${{ github.sha }} | head -n 1)
+          echo "PR_NUMBER=$PR_NUMBER" >> "${GITHUB_OUTPUT}"
+      - name: Check PR Number
+        run: |
+          test -n "${{ steps.get-associated-pr.outputs.PR_NUMBER }}"
+      - name: Test Associated PR
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+        run: |
+          MERGE_COMMIT=$(gh pr view ${{ steps.get-associated-pr.outputs.PR_NUMBER }} --json mergeCommit --jq .mergeCommit.oid)
+          echo "Merge commit: ${MERGE_COMMIT}"
+          test "${MERGE_COMMIT}" = "${{ github.sha }}"

@@ -23,3 +23,7 @@ jobs:
           gh associated-pr --graphql ${{ github.sha }}
       - run: |
           gh associated-pr --search ${{ github.sha }}
+      - run: |
+          gh associated-pr --pr-list ${{ github.sha }}
+      - run: |
+          gh associated-pr --pr-list ${{ github.sha }}
