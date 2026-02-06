@@ -47,8 +47,17 @@ jobs:
           app-id: ${{ secrets.MY_ACTIONS_APP_ID }}
           private-key: ${{ secrets.MY_ACTIONS_APP_PRIVATE_KEY }}
 
-      - name: Commit changes and create PR
+      - name: Find PR number
         if: steps.check-diff.outputs.diff == '1'
+        id: find-pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_NUMBER=$(gh pr list --head "ci/update-version-${{ steps.update-version.outputs.version }}" --json number --jq '.[0].number' || echo "")
+          echo "PR_NUMBER=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit changes and create PR
+        if: steps.check-diff.outputs.diff == '1' && steps.find-pr.outputs.PR_NUMBER == ''
         uses: suzuki-shunsuke/commit-action@f28421acc277a6d6a9c1f94ea449076ad77dba67 # v0.1.0
         with:
           commit_message: "Update version to ${{ steps.update-version.outputs.version }}"
@@ -59,7 +68,7 @@ jobs:
             gh-associated-pr
 
       - name: Create pull request
-        if: steps.check-diff.outputs.diff == '1'
+        if: steps.check-diff.outputs.diff == '1' && steps.find-pr.outputs.PR_NUMBER == ''
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.update-version.outputs.version }}
