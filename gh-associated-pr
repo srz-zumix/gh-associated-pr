@@ -29,6 +29,7 @@ Options:
   -R, --repo OWNER/REPO Select another repository using the OWNER/REPO format
   --jq EXPRESSION       Filter JSON output using a jq expression (default: '.[].number')
   --graphql             Use GraphQL API instead of REST API
+  --search              Use Search API (recommended for post-merge detection)
 
 Arguments:
   COMMIT_SHA            Commit SHA to find associated PRs (default: HEAD)
@@ -41,6 +42,7 @@ parse_params() {
     REPO=""
     JQ_QUERY=".[].number"
     USE_GRAPHQL=false
+    USE_SEARCH=false
 
     while :; do
         case "${1-}" in
@@ -61,6 +63,9 @@ parse_params() {
             ;;
         --graphql )
             USE_GRAPHQL=true
+            ;;
+        --search )
+            USE_SEARCH=true
             ;;
         -- )
             shift
@@ -151,11 +156,31 @@ EOF
         "${TRAILING_OPTIONS[@]}"
 }
 
+get_associated_prs_search() {
+    local commit_sha=$1
+    local repo=$2
+    local jq_query=$3
+    
+    # Search for pull requests containing the commit SHA
+    # Search API often has fresher data than the commits API
+    local search_query="repo:${repo} is:pr ${commit_sha}"
+    
+    # Execute search query
+    # Set GH_PAGER to cat to prevent interactive pager
+    GH_PAGER="cat" gh api search/issues \
+        -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
+        -H "Cache-Control: no-cache" \
+        -f q="$search_query" \
+        --jq ".items | $jq_query" \
+        "${TRAILING_OPTIONS[@]}"
+}
+
 get_associated_prs() {
     local commit_sha=$1
     local repo=$2
     local jq_query=$3
     local use_graphql=$4
+    local use_search=$5
     
     # Use current commit if not specified
     if [ -z "$commit_sha" ]; then
@@ -172,7 +197,9 @@ get_associated_prs() {
     fi
     
     # Call appropriate API implementation
-    if [ "$use_graphql" = true ]; then
+    if [ "$use_search" = true ]; then
+        get_associated_prs_search "$commit_sha" "$repo" "$jq_query"
+    elif [ "$use_graphql" = true ]; then
         get_associated_prs_graphql "$commit_sha" "$repo" "$jq_query"
     else
         get_associated_prs_rest "$commit_sha" "$repo" "$jq_query"
@@ -180,7 +207,7 @@ get_associated_prs() {
 }
 
 main() {
-    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL"
+    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL" "$USE_SEARCH"
 }
 
 main
