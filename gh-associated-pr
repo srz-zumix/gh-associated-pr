@@ -162,17 +162,12 @@ get_associated_prs_search() {
     local jq_query=$3
     
     # Search for pull requests containing the commit SHA
-    # Search API often has fresher data than the commits API
-    local search_query="repo:${repo} is:pr ${commit_sha}"
-    
-    # Execute search query
-    # Set GH_PAGER to cat to prevent interactive pager
-    GH_PAGER="cat" gh api /search/issues \
-        -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
-        -H "Cache-Control: no-cache" \
-        -f q="$search_query" \
-        --jq ".items | $jq_query" \
-        "${TRAILING_OPTIONS[@]}"
+    # gh search command often has fresher data than the commits API
+    GH_PAGER="cat" gh search prs \
+        --repo "$repo" \
+        --json number,title,url,state,author,mergedAt,closedAt,createdAt \
+        --jq ". | $jq_query" \
+        "$commit_sha"
 }
 
 get_associated_prs() {
