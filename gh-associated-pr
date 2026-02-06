@@ -167,7 +167,7 @@ get_associated_prs_search() {
     
     # Execute search query
     # Set GH_PAGER to cat to prevent interactive pager
-    GH_PAGER="cat" gh api search/issues \
+    GH_PAGER="cat" gh api /search/issues \
         -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
         -H "Cache-Control: no-cache" \
         -f q="$search_query" \
