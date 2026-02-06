@@ -182,17 +182,12 @@ get_associated_prs_pr_list() {
     
     # Get all merged PRs and check if they contain the commit
     # This is more reliable for post-merge scenarios
-    local prs
-    prs=$(GH_PAGER="cat" gh pr list \
+    GH_PAGER="cat" gh pr list \
         --repo "$repo" \
         --state merged \
         --limit 100 \
-        --json number,mergeCommit)
-    
-    # Filter PRs that have the matching merge commit
-    echo "$prs" | GH_PAGER="cat" gh api \
-        --jq "map(select(.mergeCommit.oid == \"$commit_sha\")) | $jq_query" \
-        -
+        --json number,mergeCommit \
+        --jq "map(select(.mergeCommit.oid == \"$commit_sha\")) | $jq_query"
 }
 
 get_associated_prs() {
