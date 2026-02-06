@@ -165,7 +165,7 @@ get_associated_prs_search() {
     # gh search command often has fresher data than the commits API
     GH_PAGER="cat" gh search prs \
         --repo "$repo" \
-        --json number,title,url,state,author,mergedAt,closedAt,createdAt \
+        --json number,title,url,state,author,closedAt,createdAt \
         --jq ". | $jq_query" \
         "$commit_sha"
 }
