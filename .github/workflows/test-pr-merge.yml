@@ -1,0 +1,145 @@
+name: Test PR Merge
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-and-merge-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create or update test base branch
+        run: |
+          # Create or update test-merge-base branch from main
+          git fetch origin
+          if git ls-remote --heads origin test-merge-base | grep test-merge-base; then
+            git checkout test-merge-base
+            git pull origin test-merge-base
+          else
+            git checkout -b test-merge-base
+            git push origin test-merge-base
+          fi
+          git checkout main
+
+      - name: Create test branch and commit
+        id: create-branch
+        run: |
+          TIMESTAMP=$(date +%s)
+          BRANCH_NAME="test/auto-merge-${TIMESTAMP}"
+
+          git checkout -b "${BRANCH_NAME}"
+          echo "Test commit at ${TIMESTAMP}" >> test-commit.txt
+          git add test-commit.txt
+          git commit -m "Test commit for PR merge test ${TIMESTAMP}"
+          git push origin "${BRANCH_NAME}"
+
+          echo "BRANCH_NAME=${BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create Pull Request
+        id: create-pr
+        run: |
+          PR_URL=$(gh pr create \
+            --title "Test PR for merge test" \
+            --body "This PR is created automatically for testing gh-associated-pr after merge." \
+            --base test-merge-base \
+            --head "${{ steps.create-branch.outputs.BRANCH_NAME }}")
+
+          PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+          echo "PR_NUMBER=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
+          echo "PR_URL=${PR_URL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Wait for checks
+        run: |
+          # Wait a bit for CI to start
+          sleep 10
+
+          # Wait for checks to complete (with timeout)
+          TIMEOUT=300
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            STATUS=$(gh pr view ${{ steps.create-pr.outputs.PR_NUMBER }} --json statusCheckRollup --jq '.statusCheckRollup | length')
+            if [ "$STATUS" = "0" ] || gh pr checks ${{ steps.create-pr.outputs.PR_NUMBER }} --watch --interval 10; then
+              echo "Checks completed"
+              break
+            fi
+            sleep 10
+            ELAPSED=$((ELAPSED + 10))
+          done
+
+      - name: Merge Pull Request
+        run: |
+          gh pr merge ${{ steps.create-pr.outputs.PR_NUMBER }} \
+            --squash \
+            --auto \
+            --delete-branch || \
+          gh pr merge ${{ steps.create-pr.outputs.PR_NUMBER }} \
+            --squash \
+            --delete-branch
+
+      - name: Wait for merge to complete
+        run: |
+          sleep 1
+
+      - name: Test gh-associated-pr after merge
+        run: |
+          # Fetch latest changes
+          git fetch origin test-merge-base
+          git checkout test-merge-base
+          git pull origin test-merge-base
+
+          # Install extension
+          make install
+
+          # Get merge commit SHA
+          MERGE_SHA=$(gh pr view ${{ steps.create-pr.outputs.PR_NUMBER }} --json mergeCommit --jq .mergeCommit.oid)
+          echo "Testing with merge commit: ${MERGE_SHA}"
+
+          # Test REST API
+          echo "Testing REST API..."
+          PR_NUMBER=$(gh associated-pr "${MERGE_SHA}" | head -n 1)
+          echo "Found PR: ${PR_NUMBER}"
+
+          if [ "${PR_NUMBER}" != "${{ steps.create-pr.outputs.PR_NUMBER }}" ]; then
+            echo "ERROR: Expected PR ${{ steps.create-pr.outputs.PR_NUMBER }}, got ${PR_NUMBER}"
+            exit 1
+          fi
+
+          # Test GraphQL API
+          echo "Testing GraphQL API..."
+          PR_NUMBER=$(gh associated-pr --graphql "${MERGE_SHA}" | head -n 1)
+          echo "Found PR: ${PR_NUMBER}"
+
+          if [ "${PR_NUMBER}" != "${{ steps.create-pr.outputs.PR_NUMBER }}" ]; then
+            echo "ERROR: Expected PR ${{ steps.create-pr.outputs.PR_NUMBER }}, got ${PR_NUMBER}"
+            exit 1
+          fi
+
+          # Test Search API
+          echo "Testing Search API..."
+          PR_NUMBER=$(gh associated-pr --search "${MERGE_SHA}" | head -n 1)
+          echo "Found PR: ${PR_NUMBER}"
+
+          if [ "${PR_NUMBER}" != "${{ steps.create-pr.outputs.PR_NUMBER }}" ]; then
+            echo "ERROR: Expected PR ${{ steps.create-pr.outputs.PR_NUMBER }}, got ${PR_NUMBER}"
+            exit 1
+          fi
+
+          echo "All tests passed!"
