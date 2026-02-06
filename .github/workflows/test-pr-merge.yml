@@ -142,4 +142,14 @@ jobs:
             exit 1
           fi
 
+          # Test PR List API
+          echo "Testing PR List API..."
+          PR_NUMBER=$(gh associated-pr --pr-list "${MERGE_SHA}" | head -n 1)
+          echo "Found PR: ${PR_NUMBER}"
+
+          if [ "${PR_NUMBER}" != "${{ steps.create-pr.outputs.PR_NUMBER }}" ]; then
+            echo "ERROR: Expected PR ${{ steps.create-pr.outputs.PR_NUMBER }}, got ${PR_NUMBER}"
+            exit 1
+          fi
+
           echo "All tests passed!"

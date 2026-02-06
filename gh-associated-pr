@@ -30,6 +30,7 @@ Options:
   --jq EXPRESSION       Filter JSON output using a jq expression (default: '.[].number')
   --graphql             Use GraphQL API instead of REST API
   --search              Use Search API (recommended for post-merge detection)
+  --pr-list             Use PR list and check commits (most reliable for post-merge)
 
 Arguments:
   COMMIT_SHA            Commit SHA to find associated PRs (default: HEAD)
@@ -43,6 +44,7 @@ parse_params() {
     JQ_QUERY=".[].number"
     USE_GRAPHQL=false
     USE_SEARCH=false
+    USE_PR_LIST=false
 
     while :; do
         case "${1-}" in
@@ -66,6 +68,9 @@ parse_params() {
             ;;
         --search )
             USE_SEARCH=true
+            ;;
+        --pr-list )
+            USE_PR_LIST=true
             ;;
         -- )
             shift
@@ -170,12 +175,33 @@ get_associated_prs_search() {
         "$commit_sha"
 }
 
+get_associated_prs_pr_list() {
+    local commit_sha=$1
+    local repo=$2
+    local jq_query=$3
+    
+    # Get all merged PRs and check if they contain the commit
+    # This is more reliable for post-merge scenarios
+    local prs
+    prs=$(GH_PAGER="cat" gh pr list \
+        --repo "$repo" \
+        --state merged \
+        --limit 100 \
+        --json number,mergeCommit)
+    
+    # Filter PRs that have the matching merge commit
+    echo "$prs" | GH_PAGER="cat" gh api \
+        --jq "map(select(.mergeCommit.oid == \"$commit_sha\")) | $jq_query" \
+        -
+}
+
 get_associated_prs() {
     local commit_sha=$1
     local repo=$2
     local jq_query=$3
     local use_graphql=$4
     local use_search=$5
+    local use_pr_list=$6
     
     # Use current commit if not specified
     if [ -z "$commit_sha" ]; then
@@ -192,7 +218,9 @@ get_associated_prs() {
     fi
     
     # Call appropriate API implementation
-    if [ "$use_search" = true ]; then
+    if [ "$use_pr_list" = true ]; then
+        get_associated_prs_pr_list "$commit_sha" "$repo" "$jq_query"
+    elif [ "$use_search" = true ]; then
         get_associated_prs_search "$commit_sha" "$repo" "$jq_query"
     elif [ "$use_graphql" = true ]; then
         get_associated_prs_graphql "$commit_sha" "$repo" "$jq_query"
@@ -202,7 +230,7 @@ get_associated_prs() {
 }
 
 main() {
-    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL" "$USE_SEARCH"
+    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL" "$USE_SEARCH" "$USE_PR_LIST"
 }
 
 main
