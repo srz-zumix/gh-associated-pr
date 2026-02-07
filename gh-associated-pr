@@ -31,6 +31,7 @@ Options:
   --graphql             Use GraphQL API instead of REST API
   --search              Use Search API (recommended for post-merge detection)
   --pr-list             Use PR list and check commits (most reliable for post-merge)
+  --use-commit-date     Use commit date for If-Modified-Since header
 
 Arguments:
   COMMIT_SHA            Commit SHA to find associated PRs (default: HEAD)
@@ -45,6 +46,7 @@ parse_params() {
     USE_GRAPHQL=false
     USE_SEARCH=false
     USE_PR_LIST=false
+    USE_COMMIT_DATE=false
 
     while :; do
         case "${1-}" in
@@ -72,6 +74,9 @@ parse_params() {
         --pr-list )
             USE_PR_LIST=true
             ;;
+        --use-commit-date )
+            USE_COMMIT_DATE=true
+            ;;
         -- )
             shift
             INPUT_BYPASS_OPTIONS=("$@")
@@ -98,15 +103,65 @@ if [ "${#INPUT_BYPASS_OPTIONS[@]}" != 0 ]; then
     TRAILING_OPTIONS+=("${INPUT_BYPASS_OPTIONS[@]}")
 fi
 
+get_if_modified_since_from_commit() {
+    local commit_sha=$1
+    local repo=$2
+    
+    # Get commit information
+    local commit_date
+    commit_date=$(GH_PAGER="cat" gh api "/repos/${repo}/commits/${commit_sha}" \
+        --jq '.commit.author.date' 2>/dev/null)
+    
+    if [ -z "$commit_date" ]; then
+        # Fallback to default if commit date cannot be retrieved
+        echo "Thu, 01 Jan 1970 00:00:00 GMT"
+        return
+    fi
+    
+    # Convert to timestamp and subtract 60 seconds
+    local timestamp
+    if date --version >/dev/null 2>&1; then
+        # GNU date
+        timestamp=$(date -d "$commit_date" +%s 2>/dev/null || echo "0")
+    else
+        # BSD date (macOS)
+        timestamp=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$commit_date" +%s 2>/dev/null || echo "0")
+    fi
+    
+    if [ "$timestamp" -eq 0 ]; then
+        echo "Thu, 01 Jan 1970 00:00:00 GMT"
+        return
+    fi
+    
+    # Subtract 60 seconds
+    timestamp=$((timestamp - 60))
+    
+    # Convert back to HTTP date format
+    if date --version >/dev/null 2>&1; then
+        # GNU date
+        date -u -d "@${timestamp}" "+%a, %d %b %Y %H:%M:%S GMT"
+    else
+        # BSD date (macOS)
+        date -u -r "${timestamp}" "+%a, %d %b %Y %H:%M:%S GMT"
+    fi
+}
+
 get_associated_prs_rest() {
     local commit_sha=$1
     local repo=$2
     local jq_query=$3
+    local use_commit_date=$4
+    
+    local if_modified_since="Thu, 01 Jan 1970 00:00:00 GMT"
+    if [ "$use_commit_date" = true ]; then
+        if_modified_since=$(get_if_modified_since_from_commit "$commit_sha" "$repo")
+        msg "Using If-Modified-Since: ${if_modified_since}"
+    fi
     
     # Fetch pull requests associated with the commit using GitHub REST API
     # Set GH_PAGER to cat to prevent interactive pager
     GH_PAGER="cat" gh api "/repos/${repo}/commits/${commit_sha}/pulls" \
-        -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
+        -H "If-Modified-Since: ${if_modified_since}" \
         -H "Cache-Control: no-cache" \
         --jq "$jq_query" \
         "${TRAILING_OPTIONS[@]}"
@@ -116,6 +171,13 @@ get_associated_prs_graphql() {
     local commit_sha=$1
     local repo=$2
     local jq_query=$3
+    local use_commit_date=$4
+    
+    local if_modified_since="Thu, 01 Jan 1970 00:00:00 GMT"
+    if [ "$use_commit_date" = true ]; then
+        if_modified_since=$(get_if_modified_since_from_commit "$commit_sha" "$repo")
+        msg "Using If-Modified-Since: ${if_modified_since}"
+    fi
     
     # Split owner and repo name
     local owner="${repo%%/*}"
@@ -151,7 +213,7 @@ EOF
     # Execute GraphQL query and extract PR data
     # Set GH_PAGER to cat to prevent interactive pager
     GH_PAGER="cat" gh api graphql \
-        -H "If-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT" \
+        -H "If-Modified-Since: ${if_modified_since}" \
         -H "Cache-Control: no-cache" \
         -f query="$query" \
         -f owner="$owner" \
@@ -197,6 +259,7 @@ get_associated_prs() {
     local use_graphql=$4
     local use_search=$5
     local use_pr_list=$6
+    local use_commit_date=$7
     
     # Use current commit if not specified
     if [ -z "$commit_sha" ]; then
@@ -218,14 +281,14 @@ get_associated_prs() {
     elif [ "$use_search" = true ]; then
         get_associated_prs_search "$commit_sha" "$repo" "$jq_query"
     elif [ "$use_graphql" = true ]; then
-        get_associated_prs_graphql "$commit_sha" "$repo" "$jq_query"
+        get_associated_prs_graphql "$commit_sha" "$repo" "$jq_query" "$use_commit_date"
     else
-        get_associated_prs_rest "$commit_sha" "$repo" "$jq_query"
+        get_associated_prs_rest "$commit_sha" "$repo" "$jq_query" "$use_commit_date"
     fi
 }
 
 main() {
-    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL" "$USE_SEARCH" "$USE_PR_LIST"
+    get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL" "$USE_SEARCH" "$USE_PR_LIST" "$USE_COMMIT_DATE"
 }
 
 main
