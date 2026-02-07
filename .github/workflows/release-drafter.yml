@@ -56,7 +56,7 @@ jobs:
           PR_NUMBER=$(gh pr list --head "ci/update-version-${{ steps.update-version.outputs.version }}" --json number --jq '.[0].number' || echo "")
           echo "PR_NUMBER=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
 
-      - name: Commit changes and create PR
+      - name: Commit changes
         if: steps.check-diff.outputs.diff == '1' && steps.find-pr.outputs.PR_NUMBER == ''
         uses: suzuki-shunsuke/commit-action@f28421acc277a6d6a9c1f94ea449076ad77dba67 # v0.1.0
         with:
