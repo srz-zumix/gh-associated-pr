@@ -19,52 +19,49 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Setup Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create or update test base branch
-        run: |
-          # Create or update test-merge-base branch from main
-          git fetch origin
-          if git ls-remote --heads origin test-merge-base | grep test-merge-base; then
-            git checkout test-merge-base
-            git pull origin test-merge-base
-          else
-            git checkout -b test-merge-base
-            git push origin test-merge-base
-          fi
-          git checkout main
-
-      - name: Create test branch and commit
-        id: create-branch
+      - name: Create test file
+        id: create-commit
         run: |
           TIMESTAMP=$(date +%s)
-          BRANCH_NAME="test/auto-merge-${TIMESTAMP}"
-
-          git checkout -b "${BRANCH_NAME}"
           echo "Test commit at ${TIMESTAMP}" >> test-commit.txt
           git add test-commit.txt
-          git commit -m "Test commit for PR merge test ${TIMESTAMP}"
-          git push origin "${BRANCH_NAME}"
 
-          echo "BRANCH_NAME=${BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.MY_ACTIONS_APP_ID }}
+          private-key: ${{ secrets.MY_ACTIONS_APP_PRIVATE_KEY }}
 
-      - name: Create Pull Request
+      - name: Commit changes and create PR
+        uses: suzuki-shunsuke/commit-action@f28421acc277a6d6a9c1f94ea449076ad77dba67 # v0.1.0
+        with:
+          commit_message: "Test commit for PR merge"
+          branch: ci/test-pr-merge-${{ github.run_id }}
+          parent_branch: main
+          github_token: ${{ steps.app-token.outputs.token }}
+          files: |
+            test-commit.txt
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         id: create-pr
         run: |
-          PR_URL=$(gh pr create \
-            --title "Test PR for merge test" \
-            --body "This PR is created automatically for testing gh-associated-pr after merge." \
+          gh pr create \
             --base test-merge-base \
-            --head "${{ steps.create-branch.outputs.BRANCH_NAME }}")
-
-          PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+            --head "ci/test-pr-merge-${{ github.run_id }}" \
+            --title "Test PR for merge" \
+            --body "This PR is created automatically for testing gh-associated-pr after merge." \
+          || :
+          PR_NUMBER=$(gh pr list --head "ci/test-pr-merge-${{ github.run_id }}" --json number --jq '.[0].number')
           echo "PR_NUMBER=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
-          echo "PR_URL=${PR_URL}" >> "${GITHUB_OUTPUT}"
 
       - name: Wait for checks
         run: |
