@@ -225,35 +225,6 @@ get_associated_prs() {
 }
 
 main() {
-    # Dump commit information for debugging
-    local commit_sha="${COMMIT_SHA}"
-    if [ -z "$commit_sha" ]; then
-        commit_sha=$(git rev-parse HEAD)
-    fi
-    
-    local repo="${REPO}"
-    if [ -z "$repo" ]; then
-        repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-    fi
-    
-    msg "Repository: ${repo}"
-    msg "Commit SHA: ${commit_sha}"
-    msg "Method: $([ "$USE_PR_LIST" = true ] && echo "PR List" || [ "$USE_SEARCH" = true ] && echo "Search" || [ "$USE_GRAPHQL" = true ] && echo "GraphQL" || echo "REST")"
-    msg "JQ Query: ${JQ_QUERY}"
-    msg ""
-    
-    # Dump commit information from GitHub API
-    msg "Fetching commit information from GitHub API..."
-    local commit_info
-    commit_info=$(GH_PAGER="cat" gh api "/repos/${repo}/commits/${commit_sha}" 2>&1 || true)
-    if [ $? -eq 0 ]; then
-        msg "Commit API Response:"
-        msg "$(echo "$commit_info" | jq -C '.' 2>/dev/null || echo "$commit_info")"
-    else
-        msg "Failed to fetch commit information: ${commit_info}"
-    fi
-    msg ""
-    
     get_associated_prs "$COMMIT_SHA" "$REPO" "$JQ_QUERY" "$USE_GRAPHQL" "$USE_SEARCH" "$USE_PR_LIST"
 }
 
